@@ -25,10 +25,10 @@ class DataCylinder:
         self._xlist = sp.zeros(self._Nx)
         self._rlist = sp.zeros(self._Nr)
         self._qlist = sp.zeros(self._Nq)
-        self._vars = sp.zeros([9,Nx,Nr,Nq])
+        self._vars = sp.zeros([self._var_number,Nx,Nr,Nq])
         # 0,1,2: for U, V, W; 3-5 for Reynolds stress
-        self._Uandrms = sp.zeros([6,self._Nx,self._Nr,self._Nq])
-        self._circum_averaged = sp.zeros([6,self._Nx,self._Nr])
+        self._Uandrms = sp.zeros([var_number-6,self._Nx,self._Nr,self._Nq])
+        self._circum_averaged = sp.zeros([var_number-6,self._Nx,self._Nr])
         self._max_2D = sp.zeros([3,self._Nx])
 
     def establish_cylinder(self):
@@ -69,16 +69,20 @@ class DataCylinder:
                     self._Uandrms[3,i_x,i_r,i_q] = math.sqrt(abs(self._vars[3,i_x,i_r,i_q]))
                     self._Uandrms[4,i_x,i_r,i_q] = math.sqrt(abs(self._vars[4,i_x,i_r,i_q]))*math.cos(self._qlist[i_q]) + math.sqrt(abs(self._vars[5,i_x,i_r,i_q]))*math.sin(self._qlist[i_q])
                     self._Uandrms[5,i_x,i_r,i_q] = self._vars[6,i_x,i_r,i_q]*math.cos(self._qlist[i_q]) + self._vars[7,i_x,i_r,i_q]*math.sin(self._qlist[i_q])
+
+                    self._Uandrms[6,i_x,i_r,i_q] = math.sqrt(abs(self._vars[9,i_x,i_r,i_q]))
+                    self._Uandrms[7,i_x,i_r,i_q] = math.sqrt(abs(self._vars[10,i_x,i_r,i_q]))*math.cos(self._qlist[i_q]) + math.sqrt(abs(self._vars[11,i_x,i_r,i_q]))*math.sin(self._qlist[i_q])
+                    self._Uandrms[8,i_x,i_r,i_q] = self._vars[12,i_x,i_r,i_q]*math.cos(self._qlist[i_q]) + self._vars[13,i_x,i_r,i_q]*math.sin(self._qlist[i_q])
     
     def circum_average(self):
         self._circum_averaged = np.average(self._Uandrms,-1)
 
     def find_max(self):
         for i_x in range(self._Nx):
-            self._max_2D[0:3,i_x] = self._circum_averaged[3:6,i_x,:].max()
+            self._max_2D[0:3,i_x] = (self._circum_averaged[3:6,i_x,:] + self._circum_averaged[6:9,i_x,:]).max()
 
     def save3Dfield(self,filename):
-        var_names = 'Variables = "x", "y","z", "U", "V", "W", "urms", "vrms"\n'
+        var_names = 'Variables = "x", "y","z", "U", "V", "W", "sqrt_uu", "sqrt_vv", "sqrt_uus", "sqrt_vvs"\n'
         zone_name = ''.join(['ZONE T="Newmesh"\n'])
         zone_ijK = ' '.join(['I=', str(self._Nx), 'J=', str(self._Nr), 'K=', str(self._Nq), '\n'])
         datapacking = 'DATAPACKING = POINT\n'
@@ -98,11 +102,13 @@ class DataCylinder:
                         w_curr = self._vars[2,i_x,i_r,i_q]
                         urms_curr = self._vars[3,i_x,i_r,i_q]
                         vrms_curr = self._vars[4,i_x,i_r,i_q]
-                        fout.write('{} {} {} {} {} {} {} {}\n' .format(x_curr, y_curr, z_curr,u_curr,v_curr,w_curr,urms_curr,vrms_curr))
+                        surms_curr = self._vars[9,i_x,i_r,i_q]
+                        svrms_curr = self._vars[10,i_x,i_r,i_q]
+                        fout.write('{} {} {} {} {} {} {} {} {} {}\n' .format(x_curr, y_curr, z_curr,u_curr,v_curr,w_curr,urms_curr,vrms_curr,surms_curr,svrms_curr))
         print("Saving 3D completed")
   
     def outputprofile(self,filename):
-        var_names = 'Variables = "x", "r", "U", "V", "W", "urms", "vrms", "uv"\n'
+        var_names = 'Variables = "x", "r", "U", "V", "W", "urms", "vrms", "uv", "urmss", "vrmss", "uvs"\n'
         zone_name = ''.join(['ZONE T="averaged"\n'])
         zone_ijK = ' '.join(['I=', str(self._Nx), 'J=', str(self._Nr),'\n'])
         datapacking = 'DATAPACKING = POINT\n'
@@ -116,7 +122,7 @@ class DataCylinder:
                 for i_x in range(self._Nx):
                     x_curr = self._xlist[i_x]
                     var_curr = self._circum_averaged[:,i_x,i_r]
-                    fout.write('{} {} {} {} {} {} {} {}\n' .format(x_curr, r_curr, var_curr[0],var_curr[1],var_curr[2],var_curr[3],var_curr[4],var_curr[5]))
+                    fout.write('{} {} {} {} {} {} {} {} {} {} {}\n' .format(x_curr, r_curr, var_curr[0],var_curr[1],var_curr[2],var_curr[3],var_curr[4],var_curr[5],var_curr[6],var_curr[7],var_curr[8]))
         print("Saving 2Daveraged completed")
 
     def outputcenterprofile(self,filename):
@@ -133,7 +139,7 @@ class DataCylinder:
         
 
 
-def read_inputdata(filename,var_number):
+def read_inputdata(filename,var_number,var_used):
     head_line = var_number + 6
     with codecs.open(filename,'r','utf-8') as f:
         count = 1
@@ -163,17 +169,19 @@ def read_inputdata(filename,var_number):
                 var_currline = scurr.split(" ",5)
                 for ivertex in range(4):
                     cell_info[index_curr,ivertex] = int(var_currline[ivertex+1])
-    data_used = sp.zeros([node_number,9])
+    data_used = sp.zeros([node_number,var_used])
     xyz_original = sp.zeros([node_number,3])
     xyz_original = inputdata[:,0:3]
     data_used[:,0:3] = inputdata[:,3:6]
-    data_used[:,3:] = inputdata[:,13:19] + inputdata[:,19:25]
+    data_used[:,3:9] = inputdata[:,13:19]
+    data_used[:,9:15] = inputdata[:,19:25]
     return element_number, xyz_original,data_used, cell_info
 
 def search_index(yz_target, element_number, xyz_ori, cell_info, MESH_SCALE):
     # search the location of every xrq point in the original data
     S_difference_min = 10000.0
     for i_m in range(element_number):
+        
         point_index = cell_info[i_m,:] - 1
         yz_point_1 = xyz_ori[point_index[0],1:3]
         l1 = yz_point_1 - yz_target
@@ -197,9 +205,7 @@ def search_index(yz_target, element_number, xyz_ori, cell_info, MESH_SCALE):
             S_difference = S_part1 + S_part2 + S_part3 + S_part4 - S_all
             if S_difference < S_difference_min:
                 S_difference_min = S_difference
-                cell_target = i_m
-        else:
-            S_difference_min = 0.0
+                cell_target = i_m    
     if S_difference_min > 0.0001:
         sys.exit()
         print("The target cell can not be found")
@@ -250,7 +256,7 @@ def cal_coefficient(element_number,xyz_ori,inputdata,cell_info,var_used,search_r
 def InterpolationProcess(i_x, Nr, Nq, yz_newmesh, var_number, var_used, search_range1, search_range2,floder_path):
     new_vars = sp.zeros([var_used,Nr,Nq])
     filename = ''.join([floder_path,'/Slice_',str(i_x+1),'.dat'])
-    element_number, xyz_ori, data_point , cell_info = read_inputdata(filename,var_number)
+    element_number, xyz_ori, data_point , cell_info = read_inputdata(filename,var_number,var_used)
     interpolation_coefficient = cal_coefficient(element_number,xyz_ori,data_point,cell_info,var_used,search_range1)
     for i_q in range(Nq):
         print(filename,i_q)
@@ -269,7 +275,7 @@ def InterpolationProcess(i_x, Nr, Nq, yz_newmesh, var_number, var_used, search_r
     np.save(file_binary,new_vars)
     
 def savenewmesh(filename,xy_new, var_new,Nr,Nq):
-    var_names = 'Variables = "y", "z", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", v"9" \n'
+    var_names = 'Variables = "y", "z", "u", "v", "w", "uu", "vv", "ww", "uv", "uw", "vw", "uus", "vvs", "wws", "uvs", "uws", "vws" \n'
     zone_name = ''.join(['ZONE T="interpolation"\n'])
     zone_ijK = ' '.join(['I=', str(Nr), 'J=', str(Nq),'\n'])
     datapacking = 'DATAPACKING = POINT\n'
@@ -282,9 +288,8 @@ def savenewmesh(filename,xy_new, var_new,Nr,Nq):
             for i_r in range(Nr):
                 y_curr = xy_new[0,i_r,i_q]
                 z_curr = xy_new[1,i_r,i_q]
-
                 var_curr = var_new[:,i_r,i_q]
-                fout.write('{} {} {} {} {} {} {} {} {} {} {}\n' .format(y_curr, z_curr, var_curr[0],var_curr[1],var_curr[2],var_curr[3],var_curr[4],var_curr[5],var_curr[6],var_curr[7],var_curr[8]))
+                fout.write('{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}\n' .format(y_curr, z_curr, var_curr[0],var_curr[1],var_curr[2],var_curr[3],var_curr[4],var_curr[5],var_curr[6],var_curr[7],var_curr[8],var_curr[9],var_curr[10],var_curr[11],var_curr[12],var_curr[13],var_curr[14]))
     print("Saving newmesh2D completed")   
 
 def loadbinary(file_binary):
@@ -296,9 +301,9 @@ if __name__ == '__main__':
     DATABINARY = False
     floder = 'Slice_Jetexit'
     floder_path = os.path.join('./',floder)
-    number_xslice = 1
+    number_xslice = 3
     var_number = 26
-    var_used = 9
+    var_used = 15
 
     #demension of new mesh
     Nx = number_xslice
@@ -306,7 +311,7 @@ if __name__ == '__main__':
     Nq = 60
 
     search_range1 = 3.5
-    search_range2 = 0.4
+    search_range2 = 0.8
 
     NewMesh = DataCylinder(Nx,Nr,Nq,var_used)
     NewMesh.establish_cylinder()
@@ -321,7 +326,7 @@ if __name__ == '__main__':
             x_vector[i_x] = i_x
     
         partial_func = partial(InterpolationProcess, Nr=Nr, Nq=Nq, yz_newmesh=yz_newmesh, var_number=var_number, var_used=var_used, search_range1 = search_range1, search_range2 = search_range2, floder_path=floder_path)
-        pool = Pool(6)
+        pool = Pool(3)
         pool.map(partial_func, x_vector)
         pool.close()
         pool.join()
